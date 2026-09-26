@@ -13,6 +13,6 @@ Commonroom is an Operate-first social workspace: people can keep up with one ano
 
 ## Interaction and content
 
-The theme choice is saved in `localStorage`; authentication never is. Sample content shown before sign-in is labeled as a preview. Seeded database users, posts, likes, comments, follows, notifications, and the demo conversation are synthetic local-development content.
+The theme choice is saved in `localStorage`. Every visitor receives an anonymous browser identity in an `HttpOnly` cookie and can use the feed, profile, follows, reactions, comments, notifications, and messages without signing in. Seeded guest profiles, posts, likes, comments, and follows are synthetic content. Private conversations are available between active guest browsers.
 
 Messages are persisted over the REST API and the open thread refreshes periodically. Uploads use a local disk adapter for development and are not durable across many serverless deployments. These MVP constraints are described in the README rather than presented as production capabilities.

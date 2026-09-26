@@ -2,18 +2,18 @@
 
 import type { FormEvent } from "react";
 import {
-  Bell, Bookmark, Check, ChevronDown, Compass, Heart, Image as ImageIcon,
-  LogIn, LogOut, MessageCircle, MessageSquare, Moon, MoreHorizontal, Plus,
+  Bell, Check, ChevronDown, Compass, Heart, Image as ImageIcon,
+  MessageCircle, MessageSquare, Moon, Plus,
   Send, Sun, UserRound, Users, X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Person = {
   id: string; username: string; name: string; bio?: string; avatarUrl?: string | null;
   following?: boolean;
 };
-type User = Person & { email: string };
+type GuestProfile = Person;
 type Comment = { id: string; body: string; createdAt: string; user: Person };
 type Post = {
   id: string; body: string; mediaUrl: string | null; mediaType: "image" | "video" | null;
@@ -36,25 +36,7 @@ type Conversation = {
 };
 type Message = { id: string; body: string; createdAt: string; senderId: string; sender: Person };
 type Tab = "Home" | "Discover" | "Messages" | "Notifications" | "Profile";
-type AuthMode = "login" | "register";
-
-const demoPosts = [
-  {
-    id: "sample-1", author: { id: "sample-jules", name: "Jules Morgan", username: "julesm" },
-    body: "A slow Sunday, a full watering can, and one tiny new leaf. Sometimes that really is the whole plan. 🌱",
-    age: "18 min", likes: 18, comments: 4,
-  },
-  {
-    id: "sample-2", author: { id: "sample-imani", name: "Imani Rivers", username: "imanir" },
-    body: "What’s a small thing someone did for you recently that stayed with you? I’ll go first: my neighbor left a little bag of lemons at the door.",
-    age: "1 hr", likes: 32, comments: 12,
-  },
-  {
-    id: "sample-3", author: { id: "sample-leo", name: "Leo Park", username: "leopark" },
-    body: "Took the long way home and found this little pocket of quiet between the buildings. Making more room for detours lately.",
-    age: "3 hr", likes: 11, comments: 2,
-  },
-];
+let guestBootstrap: Promise<{ user: GuestProfile }> | null = null;
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -89,14 +71,13 @@ function shortAge(date: string) {
 }
 
 export default function HomePage() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<GuestProfile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [notifications, setNotifications] = useState<Notice[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("Home");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<Person | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,10 +105,11 @@ export default function HomePage() {
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("commonroom-theme");
     if (storedTheme === "light" || storedTheme === "dark") setTheme(storedTheme);
-    api<{ user: User | null }>("/api/auth/me")
-      .then(async ({ user: currentUser }) => {
-        setUser(currentUser);
-        if (currentUser) await loadWorkspace();
+    guestBootstrap ??= api<{ user: GuestProfile }>("/api/guest", { method: "POST", body: "{}" });
+    guestBootstrap
+      .then(async ({ user: guest }) => {
+        setUser(guest);
+        await loadWorkspace();
       })
       .catch((error: Error) => setPageError(error.message))
       .finally(() => setLoading(false));
@@ -164,50 +146,6 @@ export default function HomePage() {
     const interval = window.setInterval(refresh, 12_000);
     return () => window.clearInterval(interval);
   }, [activeTab, selectedConversationId]);
-
-  async function authenticate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPageError("");
-    const values = new FormData(event.currentTarget);
-    const payload = authMode === "register"
-      ? {
-          name: String(values.get("name") ?? ""),
-          username: String(values.get("username") ?? ""),
-          email: String(values.get("email") ?? ""),
-          password: String(values.get("password") ?? ""),
-        }
-      : {
-          email: String(values.get("email") ?? ""),
-          password: String(values.get("password") ?? ""),
-        };
-    try {
-      const result = await api<{ user: User }>(`/api/auth/${authMode}`, {
-        method: "POST", body: JSON.stringify(payload),
-      });
-      setUser(result.user);
-      await loadWorkspace();
-      setAuthMode(null);
-      setPageError("");
-      setToast(authMode === "register" ? "You’re in. Welcome to the room!" : "Welcome back!");
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Couldn’t sign you in.");
-    }
-  }
-
-  async function signOut() {
-    try {
-      await api("/api/auth/logout", { method: "POST", body: "{}" });
-      setUser(null);
-      setPosts([]);
-      setPeople([]);
-      setNotifications([]);
-      setConversations([]);
-      setActiveTab("Home");
-      setToast("You’ve signed out.");
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Couldn’t sign out.");
-    }
-  }
 
   async function publishPost(body: string, file: File | null) {
     let attachment: { url: string; type: "image" | "video" } | undefined;
@@ -327,9 +265,7 @@ export default function HomePage() {
               <ChevronDown size={14} />
             </button>
           ) : (
-            <button className="button button-primary top-signin" onClick={() => setAuthMode("login")}>
-              <LogIn size={16} /> Sign in
-            </button>
+            <span className="guest-mode-label">Guest mode</span>
           )}
         </div>
       </header>
@@ -355,26 +291,21 @@ export default function HomePage() {
           <div className="side-note">
             <span className="note-spark">✳</span>
             <p>Good conversations start with being here.</p>
-            <button onClick={() => user ? setActiveTab("Home") : setAuthMode("register")}>
-              {user ? "See what’s new" : "Find your people"} <span aria-hidden>↗</span>
-            </button>
+            <button onClick={() => setActiveTab("Discover")}>Find your people <span aria-hidden>↗</span></button>
           </div>
-          {user && (
-            <button className="signout-link" onClick={() => void signOut()}>
-              <LogOut size={17} /> Sign out
-            </button>
-          )}
           <div className="left-footer"><span>MADE FOR THE IN-BETWEEN</span><span>© COMMONROOM 2026</span></div>
         </aside>
 
         <main className="main-column">
-          {!user && (
-            <div className="demo-notice">
-              <span className="demo-dot" />
-              <span><strong>Just looking around?</strong> You’re seeing a preview with sample community posts.</span>
-              <button onClick={() => setAuthMode("register")}>Join the room <span aria-hidden>→</span></button>
+          {!user && !loading ? (
+            <div className="empty-state" role="alert">
+              <span className="empty-icon"><Users size={25} /></span>
+              <h2>Your guest space couldn’t start.</h2>
+              <p>{pageError || "Please check your connection and try again."}</p>
+              <button className="button button-primary" onClick={() => window.location.reload()}>Try again</button>
             </div>
-          )}
+          ) : (
+            <>
 
           {pageError && (
             <div className="page-alert" role="alert">
@@ -387,8 +318,8 @@ export default function HomePage() {
             <>
               <div className="page-heading">
                 <div>
-                  <h1>{user ? "Your room" : "A room of your own"}</h1>
-                  <p>{user ? "A little of everything from the people you’re glad to know." : "Good things grow when we make room for each other."}</p>
+                  <h1>Your room</h1>
+                  <p>A little of everything from the people you’re glad to know.</p>
                 </div>
                 <span className="today-pill"><span /> {new Intl.DateTimeFormat("en", { weekday: "short", month: "short", day: "numeric" }).format(new Date())}</span>
               </div>
@@ -397,7 +328,7 @@ export default function HomePage() {
                 <div className="loading-feed" aria-label="Loading your room"><span /><span /><span /></div>
               ) : (
                 <div className="feed-list">
-                  {user && posts.map((post) => (
+                  {posts.map((post) => (
                     <PostCard
                       key={post.id}
                       post={post}
@@ -406,22 +337,7 @@ export default function HomePage() {
                       onProfile={() => openProfile(post.author)}
                     />
                   ))}
-                  {!user && demoPosts.map((post) => (
-                    <article className="post-card demo-post" key={post.id}>
-                      <div className="post-head">
-                        <Avatar person={post.author} />
-                        <div className="post-byline"><strong>{post.author.name}</strong><span>@{post.author.username} · {post.age}</span></div>
-                        <span className="sample-label">SAMPLE</span>
-                      </div>
-                      <p className="post-body">{post.body}</p>
-                      <div className="post-actions">
-                        <button onClick={() => setAuthMode("login")} aria-label="Sign in to like this post"><Heart size={18} /> <span>{post.likes}</span></button>
-                        <button onClick={() => setAuthMode("login")} aria-label="Sign in to see comments"><MessageCircle size={18} /> <span>{post.comments}</span></button>
-                        <button className="post-more" aria-label="More post options"><MoreHorizontal size={19} /></button>
-                      </div>
-                    </article>
-                  ))}
-                  {user && posts.length === 0 && !loading && (
+                  {posts.length === 0 && !loading && (
                     <div className="empty-state">
                       <span className="empty-icon">✳</span>
                       <h2>Your room is ready.</h2>
@@ -509,7 +425,7 @@ export default function HomePage() {
               user={user}
               profile={selectedProfile}
               onEdit={async (name, bio) => {
-                const result = await api<{ profile: User }>(`/api/users/${user.id}`, {
+                const result = await api<{ profile: GuestProfile }>(`/api/users/${user.id}`, {
                   method: "PATCH", body: JSON.stringify({ name, bio }),
                 });
                 setUser((current) => current ? { ...current, ...result.profile } : current);
@@ -519,16 +435,14 @@ export default function HomePage() {
               onFollow={(person) => void toggleFollow(person).catch((error: Error) => setPageError(error.message))}
             />
           )}
-          {activeTab === "Profile" && !user && (
-            <div className="empty-state"><span className="empty-icon"><Users size={25} /></span><h2>There’s a place for you here.</h2><p>Create an account to find your profile and meet the room.</p><button className="button button-primary" onClick={() => setAuthMode("register")}>Join Commonroom <span aria-hidden>→</span></button></div>
+            </>
           )}
         </main>
 
         <aside className="right-rail" aria-label="People and room notes">
           <div className="rail-section">
             <div className="rail-heading"><h2>People you may like</h2><button onClick={() => setActiveTab("Discover")}>See all</button></div>
-            {user ? (
-              <div className="suggested-people">
+            <div className="suggested-people">
                 {people.slice(0, 4).map((person) => (
                   <div className="suggested-person" key={person.id}>
                     <button className="person-avatar-link" onClick={() => openProfile(person)}><Avatar person={person} size="sm" /></button>
@@ -541,15 +455,7 @@ export default function HomePage() {
                   </div>
                 ))}
                 {!people.length && <p className="rail-empty">You’re one of the first to arrive. That’s a nice thing.</p>}
-              </div>
-            ) : (
-              <div className="rail-preview">
-                {[demoPosts[0]!, demoPosts[1]!].map((post) => (
-                  <div className="preview-person" key={post.id}><Avatar person={post.author} size="sm" /><div><strong>{post.author.name}</strong><span>Member since this morning</span></div></div>
-                ))}
-                <span className="preview-caption">SAMPLE COMMUNITY MEMBERS</span>
-              </div>
-            )}
+            </div>
           </div>
           <div className="rail-divider" />
           <div className="rail-section">
@@ -587,21 +493,12 @@ export default function HomePage() {
         ))}
       </nav>
 
-      {authMode && (
-        <AuthDialog
-          mode={authMode}
-          onMode={setAuthMode}
-          onClose={() => { setAuthMode(null); setPageError(""); }}
-          onSubmit={authenticate}
-          error={pageError}
-        />
-      )}
       {toast && <div className="toast" role="status"><span>✳</span>{toast}<button aria-label="Dismiss notification" onClick={() => setToast("")}><X size={14} /></button></div>}
     </div>
   );
 }
 
-function Composer({ user, onPublish, onError }: { user: User; onPublish: (body: string, file: File | null) => Promise<void>; onError: (message: string) => void }) {
+function Composer({ user, onPublish, onError }: { user: GuestProfile; onPublish: (body: string, file: File | null) => Promise<void>; onError: (message: string) => void }) {
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
@@ -698,7 +595,6 @@ function PostCard({ post, onLike, onComment, onProfile }: { post: Post; onLike: 
       <div className="post-head">
         <button className="avatar-action" onClick={onProfile}><Avatar person={post.author} /></button>
         <button className="post-byline" onClick={onProfile}><strong>{post.author.name}</strong><span>@{post.author.username} · {shortAge(post.createdAt)}</span></button>
-        <button className="post-more" aria-label="More post options"><MoreHorizontal size={20} /></button>
       </div>
       {post.body && <p className="post-body">{post.body}</p>}
       {post.mediaUrl && (
@@ -715,7 +611,6 @@ function PostCard({ post, onLike, onComment, onProfile }: { post: Post; onLike: 
         <button onClick={() => setShowComments((shown) => !shown)} aria-expanded={showComments}>
           <MessageCircle size={18} /><span>{post._count.comments}</span>
         </button>
-        <button className="post-more" aria-label="More post options"><Bookmark size={17} /></button>
       </div>
       {showComments && (
         <div className="comments-area">
@@ -752,7 +647,7 @@ function PersonRow({ person, onFollow, onMessage, onProfile }: { person: Person;
   );
 }
 
-function MessageThread({ conversation, currentUser, onBack, onSend }: { conversation: Conversation; currentUser: User | null; onBack: () => void; onSend: (body: string) => Promise<void> }) {
+function MessageThread({ conversation, currentUser, onBack, onSend }: { conversation: Conversation; currentUser: GuestProfile | null; onBack: () => void; onSend: (body: string) => Promise<void> }) {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -791,12 +686,12 @@ function MessageThread({ conversation, currentUser, onBack, onSend }: { conversa
         <button className="button button-primary" disabled={sending || !body.trim()} aria-label="Send message"><Send size={17} /><span>Send</span></button>
       </form>
       {error && <p className="form-error message-error" role="alert">{error}</p>}
-      <p className="thread-note">Messages refresh automatically. Your conversation is saved to your account.</p>
+      <p className="thread-note">Messages refresh automatically and are saved with this browser’s guest identity.</p>
     </section>
   );
 }
 
-function ProfilePanel({ user, profile, onEdit, onFollow }: { user: User; profile: Person | null; onEdit: (name: string, bio: string) => Promise<void>; onFollow: (person: Person) => void }) {
+function ProfilePanel({ user, profile, onEdit, onFollow }: { user: GuestProfile; profile: Person | null; onEdit: (name: string, bio: string) => Promise<void>; onFollow: (person: Person) => void }) {
   const shown = profile ?? user;
   const ownProfile = shown.id === user.id || !shown.id;
   const [editing, setEditing] = useState(false);
@@ -880,75 +775,5 @@ function ProfilePanel({ user, profile, onEdit, onFollow }: { user: User; profile
         )}
       </div>
     </section>
-  );
-}
-
-function AuthDialog({ mode, onMode, onClose, onSubmit, error }: { mode: AuthMode; onMode: (mode: AuthMode) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; error: string }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const selector = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-    const focusable = () => [...dialog.querySelectorAll<HTMLElement>(selector)];
-    focusable()[0]?.focus();
-    function containFocus(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeRef.current();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const elements = focusable();
-      const first = elements[0];
-      const last = elements.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", containFocus);
-    return () => {
-      document.removeEventListener("keydown", containFocus);
-      previouslyFocused?.focus();
-    };
-  }, []);
-
-  return (
-    <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section ref={dialogRef} className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-        <button className="dialog-close icon-button" onClick={onClose} aria-label="Close sign in"><X size={18} /></button>
-        <div className="auth-mark">c</div>
-        <span className="auth-kicker">{mode === "register" ? "THERE’S ROOM FOR YOU" : "GOOD TO SEE YOU"}</span>
-        <h2 id="auth-title">{mode === "register" ? "Come on in." : "Welcome back."}</h2>
-        <p>{mode === "register" ? "A good place to share the little things." : "Your room’s right where you left it."}</p>
-        <form className="auth-form" onSubmit={onSubmit}>
-          {mode === "register" && (
-            <>
-              <label>Your name<input name="name" autoComplete="name" required minLength={1} maxLength={48} /></label>
-              <label>Username<div className="username-input"><span>@</span><input name="username" autoComplete="username" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" /></div></label>
-            </>
-          )}
-          <label>Email address<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
-          <label>Password<input name="password" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} required minLength={mode === "register" ? 10 : 1} maxLength={72} /></label>
-          {mode === "register" && <span className="password-hint">Use at least 10 characters.</span>}
-          {error && <p className="form-error" role="alert">{error}</p>}
-          <button className="button button-primary auth-submit" type="submit">{mode === "register" ? "Create your account" : "Sign in"} <span aria-hidden>→</span></button>
-        </form>
-        <p className="auth-switch">
-          {mode === "register" ? "Already have a place here?" : "New around here?"}{" "}
-          <button onClick={() => onMode(mode === "register" ? "login" : "register")}>
-            {mode === "register" ? "Sign in" : "Join Commonroom"}
-          </button>
-        </p>
-        <p className="auth-privacy">A secure account, saved on this device with a private session.</p>
-      </section>
-    </div>
   );
 }

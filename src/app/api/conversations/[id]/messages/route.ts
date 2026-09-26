@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { messageSchema } from "@/lib/validation";
 import { errorResponse, readJson, requireId, withApiErrors, type ApiRouteContext } from "@/lib/http";
@@ -13,8 +13,8 @@ async function getAuthorizedConversation(id: string, userId: string) {
 }
 
 export const GET = withApiErrors(async (request: NextRequest, context: ApiRouteContext) => {
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to view messages.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const id = requireId((await context?.params)?.id);
   if (!id) return errorResponse("Conversation not found.", 404);
   if (!await getAuthorizedConversation(id, user.id)) {
@@ -31,8 +31,8 @@ export const GET = withApiErrors(async (request: NextRequest, context: ApiRouteC
 
 export const POST = withApiErrors(async (request: NextRequest, context: ApiRouteContext) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to send messages.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const id = requireId((await context?.params)?.id);
   if (!id) return errorResponse("Conversation not found.", 404);
   if (!await getAuthorizedConversation(id, user.id)) {

@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { errorResponse, requireId, withApiErrors, type ApiRouteContext } from "@/lib/http";
 import { notify } from "@/lib/social";
 
 async function setLike(request: NextRequest, context: ApiRouteContext | undefined, active: boolean) {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to react to posts.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const id = requireId((await context?.params)?.id);
   if (!id) return errorResponse("Post not found.", 404);
   const post = await prisma.post.findUnique({ where: { id }, select: { id: true, authorId: true } });

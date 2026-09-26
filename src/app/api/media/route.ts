@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { errorResponse, withApiErrors } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ function identifyMedia(bytes: Uint8Array): { type: "image" | "video"; extension:
 
 export const POST = withApiErrors(async (request) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  if (!await getCurrentUser(request)) return errorResponse("Sign in to upload media.", 401);
+  if (!await getGuest(request)) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_BYTES + 64 * 1024) {
     return errorResponse("Media must be 10 MB or smaller.", 413);

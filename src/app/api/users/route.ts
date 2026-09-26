@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getGuest } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { errorResponse, withApiErrors } from "@/lib/http";
 
 export const GET = withApiErrors(async (request) => {
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to find people.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const people = await prisma.user.findMany({
-    where: { id: { not: user.id } },
+    where: {
+      id: { not: user.id },
+      guestSession: { is: { expiresAt: { gt: new Date() } } },
+    },
     orderBy: { createdAt: "desc" },
     take: 8,
     select: {

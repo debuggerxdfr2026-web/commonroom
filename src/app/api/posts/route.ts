@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { errorResponse, readJson, withApiErrors } from "@/lib/http";
 import { postSchema } from "@/lib/validation";
 
 export const POST = withApiErrors(async (request) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to create a post.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const parsed = await readJson(request, postSchema);
   if ("response" in parsed) return parsed.response;
   if (parsed.data.mediaUrl && !parsed.data.mediaType) {

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getGuest } from "@/lib/guest";
 import { errorResponse, withApiErrors, type ApiRouteContext } from "@/lib/http";
 
 const mediaTypes: Record<string, string> = {
@@ -15,7 +15,7 @@ const mediaTypes: Record<string, string> = {
 export const runtime = "nodejs";
 
 export const GET = withApiErrors(async (request: NextRequest, context: ApiRouteContext) => {
-  if (!await getCurrentUser(request)) return errorResponse("Sign in to view shared media.", 401);
+  if (!await getGuest(request)) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const filename = (await context?.params)?.filename;
   const match = filename?.match(/^([0-9a-f-]{36})\.(jpg|png|webp|mp4|webm)$/i);
   if (!match) return errorResponse("Media not found.", 404);
