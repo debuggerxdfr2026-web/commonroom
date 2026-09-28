@@ -2,7 +2,7 @@
 
 Commonroom is a locally runnable, **guest-only** social app: a welcoming feed, people directory, guest profiles, follows, reactions, comments, notifications, one-to-one conversations, and image/video posts. It is a **single Next.js + TypeScript application** with same-origin REST API route handlers and PostgreSQL/Prisma persistence. A separate NestJS service, Redis, and Socket.IO are deliberately omitted to keep the MVP easy to run and deploy without claiming realtime infrastructure it does not have.
 
-The interface opens in dark mode and includes a labeled dark/light switch. Visitors automatically get an anonymous identity stored in an `HttpOnly`, `SameSite=Lax` browser cookie; no login, registration, email, or password is required. The cookie lasts one year. Clearing or losing it creates a new guest identity, and the previous identity cannot be recovered or transferred to another browser.
+The interface opens in dark mode and includes a labeled dark/light switch. Visitors automatically get an anonymous identity stored in an `HttpOnly`, `SameSite=Lax` browser cookie; no login, registration, email, password, or username input is required. Usernames are generated automatically for social display and are not verified from bootstrap requests. The cookie lasts one year. Clearing or losing it creates a new guest identity, and the previous identity cannot be recovered or transferred to another browser.
 
 ## What works
 

@@ -58,7 +58,7 @@ describe("guest identity and social APIs", () => {
     const expiresAt = new Date("2027-09-26T00:00:00Z");
     vi.mocked(ensureGuest).mockResolvedValue({ user: guest, token: "opaque-token", expiresAt });
 
-    const response = await createGuest(request("/api/guest", "POST", {}));
+    const response = await createGuest(request("/api/guest", "POST", { username: "chosen-handle" }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ user: guest });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const guestBootstrapSchema = z.object({}).strict();
+export const guestBootstrapSchema = z.object({});
 
 export const postSchema = z.object({
   body: z.string().trim().max(1000).default(""),
