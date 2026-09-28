@@ -5,7 +5,7 @@ Commonroom is an Operate-first social workspace: people can keep up with one ano
 ## Visual system
 
 - **Scene:** a welcoming evening room that still reads clearly in daylight. Dark charcoal is the starting theme; the user can switch to a matching light palette.
-- **Palette:** charcoal page (`#11130f`), raised charcoal surfaces (`#171a16`), warm readable ink (`#f1f2ec`), clear periwinkle-blue actions (`#8ea8ff`), and restrained citron details (`#d7ed79`). Light theme uses a soft neutral page and deep blue actions.
+- **Palette:** neutral blue-charcoal page (`#111318`), raised charcoal surfaces (`#181b22`), cool readable ink (`#f1f2f6`), clear periwinkle-blue actions (`#8ea8ff`), and restrained citron details (`#d7ed79`). Light theme uses a soft neutral page and deep blue actions.
 - **Type:** system UI sans-serif for readable, fast-loading conversation text; a slightly heavier system face for headings. No remote font request is needed.
 - **Shape and depth:** open editorial spacing, quiet one-pixel borders, small radii on functional surfaces, and no ornamental glow. Avatars and messages carry the human character.
 - **Composition:** desktop has a persistent global header, a slim left wayfinding rail, the feed in the center, and a people/conversation rail. Mobile puts the feed first and uses a fixed five-item bottom navigation with safe-area padding.
