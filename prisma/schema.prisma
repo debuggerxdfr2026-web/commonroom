@@ -9,15 +9,13 @@ datasource db {
 
 model User {
   id            String                    @id @default(cuid())
-  email         String                    @unique
   username      String                    @unique
-  passwordHash  String
   name          String
   bio           String                    @default("")
   avatarUrl     String?
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
-  sessions      Session[]
+  guestSession  GuestSession?
   posts         Post[]
   likes         Like[]
   comments      Comment[]
@@ -29,15 +27,14 @@ model User {
   messages      Message[]
 }
 
-model Session {
+model GuestSession {
   id        String   @id @default(cuid())
   tokenHash String   @unique
-  userId    String
+  userId    String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@index([expiresAt])
 }
 

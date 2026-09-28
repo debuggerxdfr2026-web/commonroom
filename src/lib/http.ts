@@ -4,6 +4,7 @@ import { z } from "zod";
 export type ApiRouteContext = { params: Promise<Record<string, string>> };
 type RequestHandler = (request: NextRequest) => Promise<NextResponse>;
 type ContextHandler = (request: NextRequest, context: ApiRouteContext) => Promise<NextResponse>;
+const MAX_JSON_BYTES = 16 * 1024;
 
 export function withApiErrors(handler: RequestHandler): RequestHandler;
 export function withApiErrors(handler: ContextHandler): ContextHandler;
@@ -33,9 +34,32 @@ export async function readJson<T extends z.ZodType>(
   request: NextRequest,
   schema: T,
 ): Promise<{ data: z.infer<T> } | { response: NextResponse }> {
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_JSON_BYTES) {
+    return { response: errorResponse("Request body is too large.", 413) };
+  }
   let body: unknown;
   try {
-    body = await request.json();
+    const reader = request.body?.getReader();
+    if (!reader) return { response: errorResponse("Request body must be valid JSON.", 400) };
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_JSON_BYTES) {
+        await reader.cancel();
+        return { response: errorResponse("Request body is too large.", 413) };
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    body = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return { response: errorResponse("Request body must be valid JSON.", 400) };
   }

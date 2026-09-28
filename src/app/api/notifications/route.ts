@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { errorResponse, withApiErrors } from "@/lib/http";
 
 export const GET = withApiErrors(async (request) => {
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to view notifications.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const notifications = await prisma.notification.findMany({
     where: { recipientId: user.id },
     orderBy: { createdAt: "desc" },
@@ -17,8 +17,8 @@ export const GET = withApiErrors(async (request) => {
 
 export const PATCH = withApiErrors(async (request: NextRequest) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to update notifications.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   await prisma.notification.updateMany({
     where: { recipientId: user.id, readAt: null },
     data: { readAt: new Date() },

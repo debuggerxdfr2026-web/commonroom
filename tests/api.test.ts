@@ -1,31 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 
 const db = vi.hoisted(() => ({
-  user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
-  post: { findUnique: vi.fn() },
+  user: { findUnique: vi.fn(), update: vi.fn() },
+  conversation: { findFirst: vi.fn(), create: vi.fn() },
+  post: { create: vi.fn(), findUnique: vi.fn() },
   like: { createMany: vi.fn(), deleteMany: vi.fn(), count: vi.fn() },
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: db }));
-vi.mock("@/lib/auth", () => ({
-  getCurrentUser: vi.fn(),
+vi.mock("@/lib/guest", () => ({
+  getGuest: vi.fn(),
+  ensureGuest: vi.fn(),
+  setGuestCookie: vi.fn(),
   isSameOrigin: vi.fn(() => true),
-  issueSession: vi.fn(),
-  revokeSession: vi.fn(),
-  clearSessionCookie: vi.fn(),
-  SESSION_COOKIE: "commonroom_session",
 }));
 vi.mock("@/lib/social", () => ({ notify: vi.fn() }));
 
-import { getCurrentUser } from "@/lib/auth";
-import { isSameOrigin, issueSession } from "@/lib/auth";
+import { ensureGuest, getGuest, isSameOrigin, setGuestCookie } from "@/lib/guest";
 import { notify } from "@/lib/social";
-import { POST as login } from "@/app/api/auth/login/route";
-import { POST as register } from "@/app/api/auth/register/route";
-import { PATCH as editProfile } from "@/app/api/users/[id]/route";
+import { POST as createGuest } from "@/app/api/guest/route";
+import { GET as getMessages } from "@/app/api/conversations/[id]/messages/route";
+import { POST as startConversation } from "@/app/api/conversations/route";
+import { POST as createPost } from "@/app/api/posts/route";
 import { PUT as likePost } from "@/app/api/posts/[id]/like/route";
+import { PATCH as editProfile } from "@/app/api/users/[id]/route";
+
+const guest = {
+  id: "guest-1",
+  username: "guest_123",
+  name: "Guest A12F",
+  bio: "",
+  avatarUrl: null,
+};
 
 function request(path: string, method: string, body?: unknown) {
   return new NextRequest(`http://localhost:3000${path}`, {
@@ -38,75 +45,91 @@ function request(path: string, method: string, body?: unknown) {
   });
 }
 
-describe("API authentication and authorization", () => {
+describe("guest identity and social APIs", () => {
   beforeEach(() => {
-    vi.mocked(getCurrentUser).mockReset();
+    vi.mocked(getGuest).mockReset();
+    vi.mocked(ensureGuest).mockReset();
+    vi.mocked(setGuestCookie).mockReset();
     vi.mocked(isSameOrigin).mockReturnValue(true);
-    vi.mocked(issueSession).mockReset();
+    vi.mocked(notify).mockReset();
   });
 
-  it("does not issue a session for an incorrect password", async () => {
-    db.user.findUnique.mockResolvedValue({
-      id: "account-1",
-      email: "maya@example.test",
-      username: "maya",
-      name: "Maya",
-      bio: "",
-      avatarUrl: null,
-      passwordHash: await bcrypt.hash("correct horse battery", 4),
-    });
+  it("starts a guest identity without creating or returning credentials", async () => {
+    const expiresAt = new Date("2027-09-26T00:00:00Z");
+    vi.mocked(ensureGuest).mockResolvedValue({ user: guest, token: "opaque-token", expiresAt });
 
-    const response = await login(request("/api/auth/login", "POST", {
-      email: "maya@example.test",
-      password: "wrong password",
-    }));
+    const response = await createGuest(request("/api/guest", "POST", { username: "chosen-handle" }));
 
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Email or password is incorrect." });
-    expect(issueSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ user: guest });
+    expect(ensureGuest).toHaveBeenCalledWith(expect.anything());
+    expect(setGuestCookie).toHaveBeenCalledWith(expect.anything(), "opaque-token", expiresAt);
   });
 
-  it("rejects a cross-origin login mutation before looking up an account", async () => {
+  it("rejects cross-origin guest bootstrap before creating an identity", async () => {
     vi.mocked(isSameOrigin).mockReturnValue(false);
-    const response = await login(request("/api/auth/login", "POST", {
-      email: "maya@example.test",
-      password: "correct horse battery",
-    }));
+
+    const response = await createGuest(request("/api/guest", "POST", {}));
 
     expect(response.status).toBe(403);
-    expect(db.user.findUnique).not.toHaveBeenCalled();
+    expect(ensureGuest).not.toHaveBeenCalled();
   });
 
-  it("registers an account with a password hash and starts a session", async () => {
-    db.user.findFirst.mockResolvedValue(null);
-    db.user.create.mockResolvedValue({
-      id: "account-3",
-      email: "maya@example.test",
-      username: "maya_new",
-      name: "Maya Chen",
-      bio: "",
-      avatarUrl: null,
+  it("creates posts as the current browser guest", async () => {
+    vi.mocked(getGuest).mockResolvedValue(guest);
+    db.post.create.mockResolvedValue({
+      id: "post-1",
+      body: "Hello from a guest",
+      mediaUrl: null,
+      mediaType: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      author: guest,
+      likes: [],
+      comments: [],
+      _count: { likes: 0, comments: 0 },
     });
-    const response = await register(request("/api/auth/register", "POST", {
-      name: "Maya Chen",
-      username: "Maya_New",
-      email: "MAYA@example.test",
-      password: "correct horse battery",
-    }));
+
+    const response = await createPost(request("/api/posts", "POST", { body: "Hello from a guest" }));
 
     expect(response.status).toBe(201);
-    expect(db.user.create.mock.calls[0]?.[0].data.passwordHash).not.toBe("correct horse battery");
-    expect(issueSession).toHaveBeenCalledWith("account-3", expect.anything());
+    expect(db.post.create.mock.calls[0]?.[0].data.authorId).toBe(guest.id);
+    expect((await response.json()).post.author).toEqual(guest);
   });
 
-  it("prevents a signed-in user from editing another profile", async () => {
-    vi.mocked(getCurrentUser).mockResolvedValue({
-      id: "account-1", email: "maya@example.test", username: "maya", name: "Maya",
-      bio: "", avatarUrl: null,
-    });
+  it("rejects invalid content instead of reporting a post was created", async () => {
+    vi.mocked(getGuest).mockResolvedValue(guest);
+
+    const response = await createPost(request("/api/posts", "POST", { body: " " }));
+
+    expect(response.status).toBe(400);
+    expect(db.post.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized JSON bodies before parsing or writing", async () => {
+    vi.mocked(getGuest).mockResolvedValue(guest);
+
+    const response = await createPost(request("/api/posts", "POST", { body: "x".repeat(17_000) }));
+
+    expect(response.status).toBe(413);
+    expect(db.post.create).not.toHaveBeenCalled();
+  });
+
+  it("requires a guest session before allowing social actions", async () => {
+    vi.mocked(getGuest).mockResolvedValue(null);
+
+    const response = await createPost(request("/api/posts", "POST", { body: "Hello" }));
+
+    expect(response.status).toBe(401);
+    expect(db.post.create).not.toHaveBeenCalled();
+  });
+
+  it("prevents a guest from editing another profile", async () => {
+    vi.mocked(getGuest).mockResolvedValue(guest);
+
     const response = await editProfile(
-      request("/api/users/account-2", "PATCH", { name: "Changed", bio: "Nope" }),
-      { params: Promise.resolve({ id: "account-2" }) },
+      request("/api/users/guest-2", "PATCH", { name: "Changed", bio: "Nope" }),
+      { params: Promise.resolve({ id: "guest-2" }) },
     );
 
     expect(response.status).toBe(403);
@@ -114,11 +137,8 @@ describe("API authentication and authorization", () => {
   });
 
   it("makes post likes idempotent and notifies only on the first like", async () => {
-    vi.mocked(getCurrentUser).mockResolvedValue({
-      id: "account-1", email: "maya@example.test", username: "maya", name: "Maya",
-      bio: "", avatarUrl: null,
-    });
-    db.post.findUnique.mockResolvedValue({ id: "post-1", authorId: "account-2" });
+    vi.mocked(getGuest).mockResolvedValue(guest);
+    db.post.findUnique.mockResolvedValue({ id: "post-1", authorId: "guest-2" });
     db.like.createMany
       .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 0 });
@@ -138,12 +158,27 @@ describe("API authentication and authorization", () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it("requires authentication before reading another user's messages", async () => {
-    vi.mocked(getCurrentUser).mockResolvedValue(null);
-    const { GET } = await import("@/app/api/conversations/[id]/messages/route");
-    const response = await GET(request("/api/conversations/chat-1/messages", "GET"), {
+  it("requires a guest identity before reading private messages", async () => {
+    vi.mocked(getGuest).mockResolvedValue(null);
+    const response = await getMessages(request("/api/conversations/chat-1/messages", "GET"), {
       params: Promise.resolve({ id: "chat-1" }),
     });
     expect(response.status).toBe(401);
+  });
+
+  it("does not start a conversation with an inactive guest identity", async () => {
+    vi.mocked(getGuest).mockResolvedValue(guest);
+    db.user.findUnique.mockResolvedValue({
+      id: "guest-2",
+      username: "guest_old",
+      name: "Guest Old",
+      avatarUrl: null,
+      guestSession: null,
+    });
+
+    const response = await startConversation(request("/api/conversations", "POST", { userId: "guest-2" }));
+
+    expect(response.status).toBe(404);
+    expect(db.conversation.create).not.toHaveBeenCalled();
   });
 });

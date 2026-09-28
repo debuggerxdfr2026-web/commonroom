@@ -1,26 +1,6 @@
 import { z } from "zod";
 
-export const registerSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  username: z
-    .string()
-    .trim()
-    .min(3)
-    .max(24)
-    .regex(/^[a-zA-Z0-9_]+$/, "Use letters, numbers, and underscores only.")
-    .transform((value) => value.toLowerCase()),
-  name: z.string().trim().min(1).max(48),
-  password: z
-    .string()
-    .min(10)
-    .max(72)
-    .refine((value) => new TextEncoder().encode(value).length <= 72, "Password is too long."),
-});
-
-export const loginSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: z.string().min(1).max(72),
-});
+export const guestBootstrapSchema = z.object({});
 
 export const postSchema = z.object({
   body: z.string().trim().max(1000).default(""),

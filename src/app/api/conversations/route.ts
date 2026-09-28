@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { conversationSchema } from "@/lib/validation";
 import { errorResponse, readJson, withApiErrors } from "@/lib/http";
 
 export const GET = withApiErrors(async (request) => {
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to view conversations.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const conversations = await prisma.conversation.findMany({
     where: { members: { some: { userId: user.id } } },
     orderBy: { updatedAt: "desc" },
@@ -23,16 +23,21 @@ export const GET = withApiErrors(async (request) => {
 
 export const POST = withApiErrors(async (request: NextRequest) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to start a conversation.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const parsed = await readJson(request, conversationSchema);
   if ("response" in parsed) return parsed.response;
   if (parsed.data.userId === user.id) return errorResponse("Choose someone else to message.", 400);
   const other = await prisma.user.findUnique({
     where: { id: parsed.data.userId },
-    select: { id: true, username: true, name: true, avatarUrl: true },
+    select: {
+      id: true, username: true, name: true, avatarUrl: true,
+      guestSession: { select: { expiresAt: true } },
+    },
   });
-  if (!other) return errorResponse("That person could not be found.", 404);
+  if (!other || !other.guestSession || other.guestSession.expiresAt <= new Date()) {
+    return errorResponse("That guest is no longer available to message.", 404);
+  }
   const existing = await prisma.conversation.findFirst({
     where: {
       AND: [

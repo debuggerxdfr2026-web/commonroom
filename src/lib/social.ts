@@ -7,6 +7,11 @@ export async function notify(
   referenceId?: string,
 ) {
   if (recipientId === actorId) return;
+  const recipientSession = await prisma.guestSession.findUnique({
+    where: { userId: recipientId },
+    select: { expiresAt: true },
+  });
+  if (!recipientSession || recipientSession.expiresAt <= new Date()) return;
   await prisma.notification.create({
     data: { recipientId, actorId, type, referenceId },
   });

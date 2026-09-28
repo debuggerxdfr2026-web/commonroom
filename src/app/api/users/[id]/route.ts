@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getCurrentUser, isSameOrigin } from "@/lib/auth";
+import { getGuest, isSameOrigin } from "@/lib/guest";
 import { prisma } from "@/lib/db";
 import { errorResponse, readJson, requireId, withApiErrors, type ApiRouteContext } from "@/lib/http";
 import { profileSchema } from "@/lib/validation";
 
 export const GET = withApiErrors(async (request: NextRequest, context: ApiRouteContext) => {
-  if (!await getCurrentUser(request)) return errorResponse("Sign in to view profiles.", 401);
+  if (!await getGuest(request)) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const id = requireId((await context?.params)?.id);
   if (!id) return errorResponse("Profile not found.", 404);
   const profile = await prisma.user.findUnique({
@@ -25,8 +25,8 @@ export const GET = withApiErrors(async (request: NextRequest, context: ApiRouteC
 
 export const PATCH = withApiErrors(async (request: NextRequest, context: ApiRouteContext) => {
   if (!isSameOrigin(request)) return errorResponse("Request origin could not be verified.", 403);
-  const user = await getCurrentUser(request);
-  if (!user) return errorResponse("Sign in to edit your profile.", 401);
+  const user = await getGuest(request);
+  if (!user) return errorResponse("Guest session not found. Refresh to start a new guest session.", 401);
   const id = requireId((await context?.params)?.id);
   if (!id || id !== user.id) return errorResponse("You can only edit your own profile.", 403);
   const parsed = await readJson(request, profileSchema);
